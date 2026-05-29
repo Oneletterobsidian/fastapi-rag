@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# 环境变量（含 API Key！务必排除）
+.env
+.env.local
+
+# 数据库 / 持久化数据
+*.db
+*.sqlite
+*.sqlite3
+chroma_db/
+
+# 上传文件 / 用户数据
+uploads/
+temp/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 打包
+*.egg-info/
+dist/
+build/
