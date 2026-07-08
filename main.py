@@ -16,7 +16,7 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 
 from database import engine, get_db
-from models import Base
+from database import Base
 from conversation import Conversation
 from doc_utils import parse_document, split_text
 
