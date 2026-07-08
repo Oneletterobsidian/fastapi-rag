@@ -356,3 +356,7 @@ def send_welcome_email(username: str):
     print(f"📧 开始给 {username} 发邮件...")
     time.sleep(3)
     print(f"📧 邮件已发给 {username}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
