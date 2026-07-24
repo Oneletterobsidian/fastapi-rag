@@ -1,0 +1,19 @@
+# 本地虚拟环境不需要打包，容器里会重新pip install一遍干净的依赖
+venv/
+__pycache__/
+*.pyc
+
+# 敏感信息不能打包进镜像，运行时通过 env_file 注入
+.env
+
+# 数据文件通过volume挂载，不需要在构建镜像时复制进去
+chroma_db/
+*.db
+
+# 版本控制相关文件，镜像里用不上
+.git
+.gitignore
+
+# IDE配置文件
+.vscode/
+.idea/

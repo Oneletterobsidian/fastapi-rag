@@ -1,0 +1,70 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./fastapi_learn.db:/app/fastapi_learn.db
+      - hf_cache:/root/.cache/huggingface
+      - shared_uploads:/app/shared_uploads
+
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+
+    depends_on:
+      - redis
+      - chroma
+
+    restart: unless-stopped
+
+  worker:
+    build: .
+    # 覆盖Dockerfile里默认的CMD，改成启动Celery worker而不是uvicorn
+    command: celery -A tasks.celery_app worker --loglevel=info
+
+    env_file:
+      - .env
+
+    volumes:
+      # worker不再需要挂载chroma_db本地文件夹，改成通过网络访问独立的chroma服务
+      - hf_cache:/root/.cache/huggingface
+      - shared_uploads:/app/shared_uploads
+
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+
+    depends_on:
+      - redis
+      - chroma
+
+    restart: unless-stopped
+
+  # 新增：独立的Chroma向量数据库服务
+  # api和worker都通过网络请求访问它，而不是各自打开本地文件，
+  # 从根本上避免多进程同时读写同一份文件导致的锁冲突/卡死问题
+  chroma:
+    image: chromadb/chroma:latest
+    volumes:
+      - chroma_data:/chroma/chroma
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+  shared_uploads:
+  chroma_data:

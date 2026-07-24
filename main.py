@@ -5,20 +5,21 @@ from fastapi.responses import JSONResponse
 
 import time
 import os
-import tempfile
 import uuid
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
-import chromadb
-from sentence_transformers import SentenceTransformer
-
 from database import engine, get_db
 from database import Base
 from conversation import Conversation
-from doc_utils import parse_document, split_text
+
+# embedding模型 + Chroma向量库，改成从共享模块导入（原本是直接写在这个文件里的）
+from rag_core import embed_model, chroma_client, collection, QUERY_INSTRUCTION
+
+# Celery应用 + 异步任务，用于文档上传的后台处理
+from tasks import celery_app, process_document_task
 
 # 启动时：自动创建数据库表
 Base.metadata.create_all(bind=engine)
@@ -33,17 +34,6 @@ deepseek_client = OpenAI(
 )
 
 app = FastAPI()
-
-# === 全局：嵌入模型 + Chroma ===
-embed_model = SentenceTransformer("BAAI/bge-small-zh-v1.5")
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_or_create_collection(
-    name="rag_docs",
-    metadata={"hnsw:space": "cosine"},
-)
-
-# BGE 模型的查询指令前缀（仅查询用，文档不加）
-QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 
 # CORS 中间件
 app.add_middleware(
@@ -186,42 +176,43 @@ def clear_history(session_id: str, db: Session = Depends(get_db)):
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile = File(...)):
+    """
+    改造后的上传接口：
+    只负责【校验格式】+【保存文件到共享卷】+【丢进Celery队列】，
+    立刻返回task_id，不再让用户等待"解析+切块+embedding+入库"这个耗时过程。
+    """
     # 1. 检查格式
     suffix = os.path.splitext(file.filename)[1].lower()
     if suffix not in (".txt", ".pdf", ".docx"):
         raise HTTPException(status_code=400, detail="只支持 .txt / .pdf / .docx")
 
-    # 2. 把上传文件存到临时目录，再解析
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
+    # 2. 保存到共享卷目录（api和worker两个容器都挂载了同一个volume，都能访问到这个路径）
+    upload_dir = "/app/shared_uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    saved_path = os.path.join(upload_dir, f"{uuid.uuid4().hex}{suffix}")
+    with open(saved_path, "wb") as f:
+        f.write(await file.read())
 
-    try:
-        text = parse_document(tmp_path)
-    finally:
-        os.unlink(tmp_path)   # 解析完立即删除临时文件
-
-    # 3. 切分
-    chunks = split_text(text)
-
-    # 4. 向量化 + 入库
-    doc_id = str(uuid.uuid4())[:8]   # 用文件的短 ID 做前缀
-    embeddings = embed_model.encode(chunks, normalize_embeddings=True).tolist()
-    collection.add(
-        documents=chunks,
-        embeddings=embeddings,
-        ids=[f"{doc_id}_{i}" for i in range(len(chunks))],
-        metadatas=[{"source": file.filename, "chunk_index": i}
-                   for i in range(len(chunks))],
-    )
+    # 3. 丢进Celery异步任务队列，立刻返回，不等处理完成
+    task = process_document_task.delay(saved_path, file.filename)
 
     return {
-        "message": "上传成功",
+        "message": "文档已接收，正在后台处理",
+        "task_id": task.id,
         "filename": file.filename,
-        "doc_id": doc_id,
-        "chunks_count": len(chunks),
-        "chars_total": len(text),
     }
+
+
+@app.get("/documents/status/{task_id}")
+def get_upload_status(task_id: str):
+    """查询某次文档上传处理任务的进度/结果"""
+    task_result = celery_app.AsyncResult(task_id)
+    response = {"task_id": task_id, "state": task_result.state}
+    if task_result.state == "SUCCESS":
+        response["result"] = task_result.result
+    elif task_result.state == "FAILURE":
+        response["error"] = str(task_result.info)
+    return response
 
 
 @app.get("/")
