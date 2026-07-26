@@ -1,0 +1,42 @@
+name: Run Tests
+
+# 触发条件：push到main分支，或者有人发起针对main分支的Pull Request时，都会自动跑一遍
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    # 使用GitHub提供的免费Ubuntu云端虚拟机来跑测试
+    runs-on: ubuntu-latest
+
+    steps:
+      # 第一步：把仓库代码拉取到这台临时虚拟机里
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      # 第二步：安装Python环境
+      # cache: "pip" 会自动缓存装过的依赖包，下次跑的时候能明显加快速度
+      - name: 设置Python环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # 第三步：安装依赖
+      # 单独先装CPU版的torch，跟Dockerfile里的优化思路一致——
+      # 默认从PyPI装torch会带上几个GB的CUDA相关文件，但CI这里跑测试完全用不到GPU
+      # (rag_core.py在测试里已经被整体mock掉了，实际根本不会真的加载这些AI依赖)
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      # 第四步：运行测试
+      # conftest.py里用的是os.environ.setdefault()，没设置环境变量时会自动用测试专用的默认值，
+      # 所以这里不需要额外配置任何密钥或环境变量
+      - name: 运行pytest
+        run: pytest -v
