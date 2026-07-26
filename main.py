@@ -187,7 +187,8 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="只支持 .txt / .pdf / .docx")
 
     # 2. 保存到共享卷目录（api和worker两个容器都挂载了同一个volume，都能访问到这个路径）
-    upload_dir = "/app/shared_uploads"
+    # 支持通过环境变量覆盖，方便本地pytest测试时指向临时目录，不依赖容器内的绝对路径
+    upload_dir = os.getenv("SHARED_UPLOAD_DIR", "/app/shared_uploads")
     os.makedirs(upload_dir, exist_ok=True)
     saved_path = os.path.join(upload_dir, f"{uuid.uuid4().hex}{suffix}")
     with open(saved_path, "wb") as f:

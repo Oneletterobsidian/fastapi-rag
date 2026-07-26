@@ -1,11 +1,14 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # ============================================
 # 1. 数据库连接 URL
 # ============================================
-# SQLite 数据库,文件叫 fastapi_learn.db,放在项目根目录
-DATABASE_URL = "sqlite:///./fastapi_learn.db"
+# 支持通过环境变量覆盖（主要是给pytest测试用，指向独立的测试数据库，
+# 避免测试跑起来污染你本地真实的fastapi_learn.db）
+# 不设置环境变量时，行为跟原来完全一样
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./fastapi_learn.db")
 
 # ============================================
 # 2. 创建数据库引擎
